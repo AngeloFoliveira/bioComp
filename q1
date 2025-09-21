@@ -1,0 +1,104 @@
+import numpy as np
+from numba import njit
+import sys
+import time
+
+@njit
+def create_score_matrix(seq1, seq2, match_score, mismatch_score, gap_penalty):
+    n = len(seq1) + 1
+    m = len(seq2) + 1
+    score_matrix = np.zeros((n, m), dtype=np.int32)
+
+    for i in range(n):
+        score_matrix[i][0] = gap_penalty * i
+    for j in range(m):
+        score_matrix[0][j] = gap_penalty * j
+
+    for i in range(1, n):
+        for j in range(1, m):
+            if seq1[i - 1] == seq2[j - 1]:
+                score = match_score
+            else:
+                score = mismatch_score
+
+            score_matrix[i][j] = max(
+                score_matrix[i - 1][j - 1] + score,
+                score_matrix[i - 1][j] + gap_penalty,
+                score_matrix[i][j - 1] + gap_penalty
+            )
+
+    return score_matrix
+
+@njit
+def traceback(score_matrix, seq1, seq2, match_score, mismatch_score, gap_penalty):
+    aligned_seq1 = []
+    aligned_seq2 = []
+    i = score_matrix.shape[0] - 1
+    j = score_matrix.shape[1] - 1
+
+    while i > 0 or j > 0:
+        current_score = score_matrix[i][j]
+        
+        # 1. Checa o caminho diagonal
+        if i > 0 and j > 0 and current_score == score_matrix[i-1][j-1] + (match_score if seq1[i-1] == seq2[j-1] else mismatch_score):
+            aligned_seq1.append(seq1[i - 1])
+            aligned_seq2.append(seq2[j - 1])
+            i -= 1
+            j -= 1
+        # 2. Se não, checa o caminho para cima (gap)
+        elif i > 0 and current_score == score_matrix[i - 1][j] + gap_penalty:
+            aligned_seq1.append(seq1[i - 1])
+            aligned_seq2.append('-')
+            i -= 1
+        # 3. Se não, o caminho deve ser da esquerda (gap)
+        else:
+            aligned_seq1.append('-')
+            aligned_seq2.append(seq2[j - 1])
+            j -= 1
+
+    return ''.join(aligned_seq1[::-1]), ''.join(aligned_seq2[::-1])
+
+@njit
+def needleman_wunsch(seq1, seq2, match_score=2, mismatch_score=-2, gap_penalty=-3):
+    score_matrix = create_score_matrix(seq1, seq2, match_score, mismatch_score, gap_penalty)
+    aligned_seq1, aligned_seq2 = traceback(score_matrix, seq1, seq2, match_score, mismatch_score, gap_penalty)
+
+    return aligned_seq1, aligned_seq2, score_matrix[-1][-1]
+
+def calculate_identity(aligned_seq1, aligned_seq2):
+    matches = 0
+    alignment_length = len(aligned_seq1)
+    for i in range(alignment_length):
+        if aligned_seq1[i] == aligned_seq2[i]:
+            matches += 1
+    return (matches / alignment_length) * 100
+
+
+def main():
+    
+    humano = "VLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKY"
+    gado =   "VLSAADKGNVKAAWGKVGGHAAEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGAKVAAALTKAVEHLDDLPGALSELSDLHAHKLRVDPVNFKLLSHSLLVTLASHLPSDFTPAVHASLDKFLANVSTVLTSKYR"
+    cavalo = "VLSAADKTNVKAAWSKVGGHAGEYGAEALERMFLGFPTTKTYFPHFDLSHGSAQVKAHGKKVGDALTLAVGHLDDLPGALSNLSDLHAHKLRVDPVNFKLLSHCLLSTLAVHLPNDFTPAVHASLDKFLSSVSTVLTSKYR"
+    veado = "VLSAANKSNVKAAWGKVGGNAPAYGAQALQRMFLSFPTTKTYFPHFDLSHGSAQQKAHGQKVANALTKAQGHLNDLPGTLSNLSNLHAHKLRVNPVNFKLLSHSLLVTLASHLPTNFTPAVHANLNKFLANDSTVLTSKYR"
+
+     # Pares para alinhamento
+    pairs = {
+        "Homo sapiens vs. Equus caballus": (humano, cavalo),
+        "Homo sapiens vs. Odocoileus virginianus": (humano, veado),
+        "Homo sapiens vs. Bos taurus": (humano, gado),
+        "TESTE": ("ATAGGCAAA", "ATGGCC")
+    }
+
+
+    for name, (seq1, seq2) in pairs.items():
+        print(f"--- {name} ---")
+        aligned_seq1, aligned_seq2, score = needleman_wunsch(seq1, seq2)
+        identity = calculate_identity(aligned_seq1, aligned_seq2)
+
+        print(f"Alinhamento 1: {aligned_seq1}")
+        print(f"Alinhamento 2: {aligned_seq2}")
+        print(f"Pontuação Final: {score}")
+        print(f"Identidade: {identity:.2f}%\n")
+
+if __name__ == "__main__":
+    main()
